@@ -1,0 +1,17 @@
+[gd_scene format=3 uid="uid://smf6u3tuyv3x"]
+
+[node name="Pillars" type="Node3D"]
+
+[node name="CSGCylinder3D" type="CSGCylinder3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 25, 0)
+use_collision = true
+radius = 6.0
+height = 50.0
+cone = true
+
+[node name="CSGCylinder3D2" type="CSGCylinder3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 25, 0)
+use_collision = true
+radius = 6.0
+height = 50.0
+cone = true

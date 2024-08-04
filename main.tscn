@@ -1,0 +1,63 @@
+[gd_scene load_steps=10 format=3 uid="uid://x02vjyefplol"]
+
+[ext_resource type="PackedScene" uid="uid://c3hcp4hfgwyr4" path="res://aero_body_3d.tscn" id="1_tjius"]
+[ext_resource type="PackedScene" uid="uid://smf6u3tuyv3x" path="res://pillars.tscn" id="2_bex3p"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_3pr32"]
+sky_horizon_color = Color(0.64625, 0.65575, 0.67075, 1)
+ground_horizon_color = Color(0.64625, 0.65575, 0.67075, 1)
+
+[sub_resource type="Sky" id="Sky_6ykpw"]
+sky_material = SubResource("ProceduralSkyMaterial_3pr32")
+
+[sub_resource type="Environment" id="Environment_cg6fh"]
+background_mode = 2
+sky = SubResource("Sky_6ykpw")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_mouss"]
+size = Vector3(1000, 1, 1000)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_8llo8"]
+frequency = 0.11
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_ccx6r"]
+noise = SubResource("FastNoiseLite_8llo8")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_uni3l"]
+albedo_color = Color(0.246682, 0.450129, 0.235876, 1)
+albedo_texture = SubResource("NoiseTexture2D_ccx6r")
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_cg6fh")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.866023, -0.433016, 0.250001, 0, 0.499998, 0.866027, -0.500003, 0.749999, -0.43301, 0, 0, 0)
+shadow_enabled = true
+
+[node name="StaticBody3D" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StaticBody3D"]
+shape = SubResource("BoxShape3D_mouss")
+
+[node name="CSGBox3D" type="CSGBox3D" parent="StaticBody3D"]
+size = Vector3(1000, 1, 1000)
+material = SubResource("StandardMaterial3D_uni3l")
+
+[node name="AeroBody3D" parent="." instance=ExtResource("1_tjius")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0126266, 784.214, 598.371)
+
+[node name="Pillars" parent="." instance=ExtResource("2_bex3p")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -28.3813, 1, 190.992)
+
+[node name="Pillars2" parent="." instance=ExtResource("2_bex3p")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 51.6474, 1, -109.429)
+
+[node name="Pillars3" parent="." instance=ExtResource("2_bex3p")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.4194, 1, -325.543)
+
+[node name="Pillars4" parent="." instance=ExtResource("2_bex3p")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 37.5745, 1, 432.927)
