@@ -5,93 +5,95 @@ class_name AeroBody3D
 const AeroMathUtils = preload("../utils/math_utils.gd")
 const AeroNodeUtils = preload("../utils/node_utils.gd")
 
-##Overrides the amount of simulation substeps are used when calculating aerodynamic effects on this body.
+## Overrides the amount of simulation substeps are used when calculating aerodynamic effects on this body.
 @export var substeps_override : int = -1:
 	set(x):
 		substeps_override = x
 		PREDICTION_TIMESTEP_FRACTION = 1.0 / float(SUBSTEPS)
 
 @export_group("Control")
-##Value used by AeroInfluencers to control the AeroBody3D. Represents rotational axes. 
-##X = Pitch, Y = Yaw, Z = Roll.
+## Value used by AeroInfluencers to control the AeroBody3D. Represents rotational axes. 
+## X = Pitch, Y = Yaw, Z = Roll.
 @export var control_command : Vector3 = Vector3.ZERO
-##Value used by AeroInfluencers to control the AeroBody3D.
+## Value used by AeroInfluencers to control the AeroBody3D.
 @export var throttle_command : float = 0.0
-##Value used by AeroInfluencers to control the AeroBody3D.
+## Value used by AeroInfluencers to control the AeroBody3D.
 @export var brake_command : float = 0.0
+## Value used by AeroInfluencers to control the AeroBody3D.
+@export var collective_command : float = 0.0
 
 @export_group("Debug")
 
 @export_subgroup("Visibility")
-##Enables visibility of debug components.
+## Enables visibility of debug components.
 @export var show_debug : bool = false:
 	set(x):
 		show_debug = x
 		_update_debug_visibility()
-##Enables update of debug components. Debug is only updated when show_debug and update_debug are true.
-@export var update_debug : bool = false
-##Enables visibility of wing debug components.
+## Enables update of debug components. Debug is only updated when show_debug and update_debug are true.
+@export var update_debug : bool = true
+## Enables visibility of wing debug components.
 @export var show_wing_debug_vectors : bool = true:
 	set(x):
 		show_wing_debug_vectors = x
 		_update_debug_visibility()
-##Controls visibility of total lift vector.
+## Controls visibility of total lift vector.
 @export var show_lift_vectors : bool = true:
 	set(x):
 		show_lift_vectors = x
 		_update_debug_visibility()
-##Controls visibility of total drag vector.
+## Controls visibility of total drag vector.
 @export var show_drag_vectors : bool = true:
 	set(x):
 		show_drag_vectors = x
 		_update_debug_visibility()
-##Controls visibility of linear velocity vector.
+## Controls visibility of linear velocity vector.
 @export var show_linear_velocity : bool = true:
 	set(x):
 		show_linear_velocity = x
 		_update_debug_visibility()
-##Controls visibility of angular velocity vector.
+## Controls visibility of angular velocity vector.
 @export var show_angular_velocity : bool = true:
 	set(x):
 		show_angular_velocity = x
 		_update_debug_visibility()
 
-##Controls visibility of the center of lift vector.
+## Controls visibility of the center of lift vector.
 @export var show_center_of_lift : bool = true:
 	set(x):
 		show_center_of_lift = x
 		_update_debug_visibility()
-##Controls visibility of the center of drag vector.
+## Controls visibility of the center of drag vector.
 @export var show_center_of_drag : bool = true:
 	set(x):
 		show_center_of_drag = x
 		_update_debug_visibility()
-##Controls visibility of the center of mass marker.
+## Controls visibility of the center of mass marker.
 @export var show_center_of_mass : bool = true:
 	set(x):
 		show_center_of_mass = x
 		_update_debug_visibility()
-##Controls visibility of the center of lift marker. (Unused)
+## Controls visibility of the center of lift marker. (Unused)
 @export var show_center_of_thrust : bool = true:
 	set(x):
 		show_center_of_thrust = x
 
 @export_subgroup("Options")
-##Linear velocity used for debug components calculations in the editor.
+## Linear velocity used for debug components calculations in the editor.
 @export var debug_linear_velocity := Vector3(0, -10, -100)
-##Angular velocity used for debug components calculations in the editor.
+## Angular velocity used for debug components calculations in the editor.
 @export var debug_angular_velocity := Vector3.ZERO
-##Controls the scale of debug components.
+## Controls the scale of debug components.
 @export var debug_scale : float = 0.1:
 	set(x):
 		debug_scale = x
 		_update_debug_scale()
-##Controls the width/thickness of debug vectors.
+## Controls the width/thickness of debug vectors.
 @export var debug_width : float = 0.05:
 	set(x):
 		debug_width = x
 		_update_debug_scale()
-##Controls the width/thickness of debug center markers.
+## Controls the width/thickness of debug center markers.
 @export var debug_center_width : float = 0.2:
 	set(x):
 		debug_center_width = x
@@ -121,7 +123,10 @@ var current_torque := Vector3.ZERO
 var current_gravity := Vector3.ZERO
 @onready var last_linear_velocity : Vector3 = linear_velocity
 @onready var last_angular_velocity : Vector3 = angular_velocity
-var wind := Vector3.ZERO
+var wind := Vector3.ZERO:
+	set(x):
+		if not wind == x: interrupt_sleep()
+		wind = x
 var air_velocity := Vector3.ZERO
 var local_air_velocity := Vector3.ZERO
 var local_angular_velocity := Vector3.ZERO
@@ -137,6 +142,31 @@ var heading := 0.0
 var inclination := 0.0
 
 
+#override warning tests
+var test_enter_tree_override : bool = false
+var test_ready_override : bool = false
+var test_physics_process_override : bool = false
+var test_integrate_forces_override : bool = false
+
+func test_overrides() -> void:
+	if not is_inside_tree() or not get_tree():
+		#push_error("Not inside tree, couldn't test method overrides.")
+		return
+	
+	if not test_enter_tree_override:
+		push_warning("_enter_tree() was overriden, but super._enter_tree() was not called. AeroBody3D may not work properly. " + get_script().get_path())
+	if not test_ready_override:
+		push_warning("_ready() was overriden, but super._ready() was not called. AeroBody3D may not work properly." + get_script().get_path())
+	if can_process() and not test_physics_process_override:
+		push_warning("_physics_process() was overriden, but super._physics_process() was not called. AeroBody3D may not work properly. " + get_script().get_path())
+	
+	if not Engine.is_editor_hint():
+		await get_tree().physics_frame
+		if can_process() and not test_integrate_forces_override:
+			push_warning("_integrate_forces() was overriden, but super._integrate_forces() was not called. AeroBody3D may not work properly." + get_script().get_path())
+	
+	
+
 #debug
 var linear_velocity_vector : AeroDebugVector3D
 var angular_velocity_vector : AeroDebugVector3D
@@ -149,41 +179,46 @@ var thrust_debug_vector : AeroDebugVector3D
 
 func _init():
 	mass_debug_point = AeroDebugPoint3D.new(Color(1, 1, 0), debug_center_width, true)
+	mass_debug_point.name = "MassDebugPoint"
 	mass_debug_point.visible = false
 	mass_debug_point.sorting_offset = 0.0
-	add_child(mass_debug_point, INTERNAL_MODE_FRONT)
 	
 	lift_debug_vector = AeroDebugVector3D.new(Color(0, 1, 1), debug_center_width, true)
+	lift_debug_vector.name = "LiftDebugVector"
 	lift_debug_vector.visible = false
 	lift_debug_vector.sorting_offset = 0.0
-	add_child(lift_debug_vector, INTERNAL_MODE_FRONT)
 	
 	drag_debug_vector = AeroDebugVector3D.new(Color(1, 0, 0), debug_width, true)
+	drag_debug_vector.name = "DragDebugVector"
 	drag_debug_vector.visible = false
 	drag_debug_vector.sorting_offset = -0.01
-	add_child(drag_debug_vector, INTERNAL_MODE_FRONT)
 	
 	thrust_debug_vector = AeroDebugVector3D.new(Color(1, 0, 1), debug_width, true)
+	thrust_debug_vector.name = "ThrustDebugVector"
 	thrust_debug_vector.visible = false
 	thrust_debug_vector.sorting_offset = -0.02
-	add_child(thrust_debug_vector, INTERNAL_MODE_FRONT)
 	
 	linear_velocity_vector = AeroDebugVector3D.new(Color(0, 0.5, 0.5), debug_width, false)
+	linear_velocity_vector.name = "LinearVelocityVector"
 	linear_velocity_vector.visible = false
 	linear_velocity_vector.sorting_offset = -0.03
-	mass_debug_point.add_child(linear_velocity_vector, INTERNAL_MODE_FRONT)
 	
 	angular_velocity_vector = AeroDebugVector3D.new(Color(0, 0.333, 0), debug_width, false)
+	angular_velocity_vector.name = "AngularVelocityVector"
 	angular_velocity_vector.visible = false
 	angular_velocity_vector.sorting_offset = -0.04
-	mass_debug_point.add_child(angular_velocity_vector, INTERNAL_MODE_FRONT)
 	
 	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 	angular_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
-
+	
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	
+	#test that necessary functions (_ready(), _enter_tree(), _physics_process()
+	test_overrides.call_deferred()
 
 func _enter_tree() -> void:
+	test_enter_tree_override = true
+	
 	AeroNodeUtils.connect_signal_safe(self, "child_entered_tree", on_child_enter_tree, 0, true)
 	AeroNodeUtils.connect_signal_safe(self, "child_exiting_tree", on_child_exit_tree, 0, true)
 	
@@ -201,6 +236,15 @@ func on_child_exit_tree(node : Node) -> void:
 		node.aero_body = null
 
 func _ready() -> void:
+	test_ready_override = true
+	
+	add_child(mass_debug_point, INTERNAL_MODE_FRONT)
+	add_child(lift_debug_vector, INTERNAL_MODE_FRONT)
+	add_child(drag_debug_vector, INTERNAL_MODE_FRONT)
+	add_child(thrust_debug_vector, INTERNAL_MODE_FRONT)
+	mass_debug_point.add_child(linear_velocity_vector, INTERNAL_MODE_FRONT)
+	mass_debug_point.add_child(angular_velocity_vector, INTERNAL_MODE_FRONT)
+	
 	if Engine.is_editor_hint():
 		update_configuration_warnings()
 
@@ -221,15 +265,22 @@ func _get_configuration_warnings() -> PackedStringArray:
 	else:
 		if angular_damp > 0.0:
 			warnings.append("Angular damping is greater than 0. Unexpected aerodynamic characteristics will be present.")
-
+	
 	return warnings
 
 func _physics_process(delta : float) -> void:
+	test_physics_process_override = true
+	
 	if show_debug and update_debug:
 		_update_debug()
 
 var _integrate_forces_time : float = 0.0
 func _integrate_forces(state : PhysicsDirectBodyState3D) -> void:
+	test_integrate_forces_override = true
+	
+	if is_overriding_body_sleep():
+		interrupt_sleep()
+	
 	if state.sleeping or SUBSTEPS == 0:
 		return
 	
@@ -252,7 +303,7 @@ var substep_delta : float = get_physics_process_delta_time() / SUBSTEPS
 
 func calculate_forces(state : PhysicsDirectBodyState3D) -> PackedVector3Array:
 	#eventually implement wind
-	wind = Vector3.ZERO
+	#wind = Vector3.ZERO
 	air_velocity = -linear_velocity + wind
 	air_speed = air_velocity.length()
 	
@@ -292,7 +343,7 @@ func calculate_forces(state : PhysicsDirectBodyState3D) -> PackedVector3Array:
 					continue
 				influencer._update_transform_substep(substep_delta)
 		
-		linear_velocity_prediction = predict_linear_velocity(last_force_and_torque[0] + state.total_gravity * mass)
+		linear_velocity_prediction = predict_linear_velocity(last_force_and_torque[0]) + state.total_gravity * PREDICTION_TIMESTEP_FRACTION
 		angular_velocity_prediction = predict_angular_velocity(last_force_and_torque[1])
 		last_force_and_torque = calculate_aerodynamic_forces(linear_velocity_prediction, angular_velocity_prediction, air_density, substep_delta)
 		
@@ -323,17 +374,10 @@ func calculate_aerodynamic_forces(_velocity : Vector3, _angular_velocity : Vecto
 	return PackedVector3Array([force, torque])
 
 func predict_linear_velocity(force : Vector3) -> Vector3:
-	return linear_velocity + get_physics_process_delta_time() * (PREDICTION_TIMESTEP_FRACTION * force / mass)
+	return linear_velocity + (force / mass * get_physics_process_delta_time() * PREDICTION_TIMESTEP_FRACTION)
 
 func predict_angular_velocity(torque : Vector3) -> Vector3:
-	var torque_in_diagonal_space : Vector3 = get_inverse_inertia_tensor() * torque
-
-	var angular_velocity_change_in_diagonal_space : Vector3
-	angular_velocity_change_in_diagonal_space.x = torque_in_diagonal_space.x / get_inverse_inertia_tensor().x.length()
-	angular_velocity_change_in_diagonal_space.y = torque_in_diagonal_space.y / get_inverse_inertia_tensor().y.length()
-	angular_velocity_change_in_diagonal_space.z = torque_in_diagonal_space.z / get_inverse_inertia_tensor().z.length()
-
-	return angular_velocity + get_physics_process_delta_time() * PREDICTION_TIMESTEP_FRACTION * (get_inverse_inertia_tensor() * angular_velocity_change_in_diagonal_space)
+	return angular_velocity + get_physics_process_delta_time() * PREDICTION_TIMESTEP_FRACTION * (get_inverse_inertia_tensor() * torque)
 
 func get_amount_of_active_influencers() -> int:
 	var count : int = 0
@@ -358,13 +402,25 @@ func get_linear_acceleration() -> Vector3:
 func get_angular_acceleration() -> Vector3:
 	return (angular_velocity_prediction - last_angular_velocity) / substep_delta
 
+func is_overriding_body_sleep() -> bool:
+	var overriding : bool = false
+	for influencer : AeroInfluencer3D in aero_influencers:
+		overriding = overriding or influencer.is_overriding_body_sleep()
+	
+	return overriding
+
+func interrupt_sleep() -> void:
+	sleeping = false
 
 #debug
 
 
 func _update_debug() -> void:
+	for influencer : AeroInfluencer3D in aero_influencers:
+		influencer.update_debug_vectors()
+	
 	aero_surfaces = []
-	for i in get_children():
+	for i : AeroInfluencer3D in aero_influencers:
 		if i is AeroSurface3D:
 			aero_surfaces.append(i)
 	
@@ -381,8 +437,8 @@ func _update_debug() -> void:
 		linear_velocity_to_use = debug_linear_velocity
 		angular_velocity_to_use = debug_angular_velocity
 	
-	linear_velocity_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(linear_velocity_to_use, 2.0)
-	angular_velocity_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(angular_velocity_to_use, 2.0)
+	linear_velocity_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(linear_velocity_to_use, 2.0)
+	angular_velocity_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(angular_velocity_to_use, 2.0)
 	
 	#Godot doesn't run physics engine in-editor.
 	#A consequence of this is that get_linear_velocity doesn't work.
@@ -435,8 +491,8 @@ func _update_debug() -> void:
 			drag_position_sum += surface.transform.origin * surface.drag_force
 		
 		if lift_sum_vector.is_finite() and drag_sum_vector.is_finite():
-			lift_debug_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(lift_sum_vector / amount_of_aero_surfaces, 2.0)
-			drag_debug_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(drag_sum_vector / amount_of_aero_surfaces, 2.0)
+			lift_debug_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(lift_sum_vector / amount_of_aero_surfaces, 2.0)
+			drag_debug_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(drag_sum_vector / amount_of_aero_surfaces, 2.0)
 			
 			if is_equal_approx(lift_sum, 0.0):
 				lift_sum = 1.0
@@ -445,6 +501,8 @@ func _update_debug() -> void:
 				drag_sum = 1.0
 			drag_debug_vector.position = drag_position_sum / amount_of_aero_surfaces / (drag_sum / amount_of_aero_surfaces)
 	
+	for influencer : AeroInfluencer3D in aero_influencers:
+		influencer.update_debug_vectors()
 
 func _update_debug_visibility() -> void:
 	#update aerosurface visibility
@@ -474,7 +532,3 @@ func _update_debug_scale() -> void:
 	angular_velocity_vector.width = debug_width
 	drag_debug_vector.width = debug_width
 	thrust_debug_vector.width = debug_width
-
-
-static func log_with_base(vector : Vector3, base : float) -> Vector3:
-	return vector.normalized() * AeroMathUtils.log_with_base(vector.length() + 1, base)

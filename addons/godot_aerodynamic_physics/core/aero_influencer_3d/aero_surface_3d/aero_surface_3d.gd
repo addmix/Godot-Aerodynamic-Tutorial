@@ -2,7 +2,7 @@
 extends AeroInfluencer3D
 class_name AeroSurface3D
 
-##Config resource used to define the size of the AeroSurface3D node.
+## Config resource used to define the size of the AeroSurface3D node.
 @export var wing_config : AeroSurfaceConfig = AeroSurfaceConfig.new():
 	set(value):
 		wing_config = value
@@ -13,9 +13,9 @@ class_name AeroSurface3D
 			update_gizmos()
 
 @export_group("Debug")
-##Controls visibility of the AeroSurface3D's lift debug vector
+## Controls visibility of the AeroSurface3D's lift debug vector
 @export var show_lift : bool = true
-##Controls visibility of the AeroSurface3D's drag debug vector
+## Controls visibility of the AeroSurface3D's drag debug vector
 @export var show_drag : bool = true
 
 var angle_of_attack : float = 0.0
@@ -96,6 +96,6 @@ func update_debug_vectors() -> void:
 	
 	#don't update invisible vectors
 	if lift_debug_vector.visible:
-		lift_debug_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(_current_lift, 2.0) * debug_scale
+		lift_debug_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(_current_lift, 2.0) * debug_scale
 	if drag_debug_vector.visible:
-		drag_debug_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(_current_drag, 2.0) * debug_scale
+		drag_debug_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(_current_drag, 2.0) * debug_scale

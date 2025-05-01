@@ -22,6 +22,9 @@ static func bias(x : float, bias : float) -> float:
 	var k : float = f * f * f
 	return (x * k) / (x * k - x + 1)
 
+static func improved_ease(value : float, curve : float = 1.0) -> float:
+	return ease(abs(value), curve) * sign(value)
+
 #branchlessly toggles a float between two values given a condition
 static func float_toggle(condition : bool, _true : float, _false : float) -> float:
 	return float(condition) * _true + float(!condition) * _false
@@ -48,6 +51,14 @@ static func polynomial_smin(a : float, b : float, k : float =0.1) -> float:
 static func sigmoid(x : float, e : float = E) -> float:
 	return pow(e, x) / pow(e, x) + 1.0
 
+
+
+#
+
+
+
+static func v3log_with_base(vector : Vector3, base : float) -> Vector3:
+	return vector.normalized() * log_with_base(vector.length() + 1, base)
 
 
 

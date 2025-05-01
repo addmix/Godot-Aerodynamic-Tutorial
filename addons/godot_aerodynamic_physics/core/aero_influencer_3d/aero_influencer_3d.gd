@@ -2,55 +2,40 @@
 extends Node3D
 class_name AeroInfluencer3D
 
+const AeroMathUtils = preload("../../utils/math_utils.gd")
 const AeroNodeUtils = preload("../../utils/node_utils.gd")
 
-##If true, this AeroInfluencer3D will not have any effect on the simulation.
+## If true, this AeroInfluencer3D will not have any effect on the simulation.
 @export var disabled : bool = false
+## Allows the current AeroInfluencer to prevent/interrupt the AeroBody's sleep. This is useful for thrust-providing
+## nodes like AeroMovers or Propellers. Sleep is only interrupted if the AeroInfluencer sub-class triggers it.
+@export var can_override_body_sleep : bool = true
 
-@export_group("Control")
-##If enabled, this AeroInfluencer3D node will automatically rotate to accommodate control inputs.
-@export var enable_automatic_control : bool = true
-#X = pitch, Y = yaw, Z = roll
 var control_command := Vector3.ZERO
 var throttle_command : float = 0.0
 var brake_command : float = 0.0
-##Maximum rotation (in radians) this AeroInfluencer can rotate for controls.
-@export var max_actuation := Vector3.ZERO
-##Amount of rotation that pitch commands contribute to this node's rotation.
-@export var pitch_contribution := Vector3.ZERO
-##Amount of rotation that yaw commands contribute to this node's rotation.
-@export var yaw_contribution := Vector3.ZERO
-##Amount of rotation that roll commands contribute to this node's rotation.
-@export var roll_contribution := Vector3.ZERO
-##Amount of rotation that throttle commands contribute to this node's rotation.
-@export var throttle_contribution := Vector3.ZERO
-##Amount of rotation that brake commands contribute to this node's rotation.
-@export var brake_contribution := Vector3.ZERO
-##Rotation order used when doing control rotations.
+var collective_command : float = 0.0
+
+@export_group("Actuation Control")
+@export var actuation_config : AeroInfluencerControlConfig
+## Rotation order used when doing control rotations.
 @export_enum("XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX") var control_rotation_order : int = 0
+@export_subgroup("")
 
 @export_group("Debug")
-##If enabled, this AeroInfluencer3D is omitted from AeroBody3D debug calculations.
+## If enabled, this AeroInfluencer3D is omitted from AeroBody3D debug calculations.
 @export var omit_from_debug : bool = false
 var debug_scale : float = 0.1
 var debug_width : float = 0.05
 var show_debug : bool = false
 
-##Controls visibility of the AeroInfluencer3D's force debug vector.
+## Controls visibility of the AeroInfluencer3D's force debug vector.
 @export var show_force : bool = true
-##Controls visibility of the AeroInfluencer3D's torque debug vector.
+## Controls visibility of the AeroInfluencer3D's torque debug vector.
 @export var show_torque : bool = true
 
 var aero_body : AeroBody3D
 var aero_influencers : Array[AeroInfluencer3D] = []
-
-var override_body_sleep : bool = false:
-	set(x):
-		override_body_sleep = x
-		
-		#not correct
-		if override_body_sleep and aero_body:
-			aero_body.sleeping = false
 
 @onready var default_transform := transform
 var world_air_velocity := Vector3.ZERO
@@ -89,6 +74,11 @@ func _init():
 	torque_debug_vector.sorting_offset = 0.01
 	add_child(torque_debug_vector, INTERNAL_MODE_FRONT)
 
+func _ready() -> void:
+	if not Engine.is_editor_hint():
+		if actuation_config:
+			actuation_config = actuation_config.duplicate(true)
+
 func _enter_tree() -> void:
 	AeroNodeUtils.connect_signal_safe(self, "child_entered_tree", on_child_enter_tree, 0, true)
 	AeroNodeUtils.connect_signal_safe(self, "child_exiting_tree", on_child_exit_tree, 0, true)
@@ -103,11 +93,13 @@ func on_child_exit_tree(node : Node) -> void:
 		aero_influencers.erase(node)
 		node.aero_body = null
 
-func _physics_process(delta: float) -> void:
-	update_debug_vectors()
-	
-	if is_overriding_body_sleep() and aero_body:
-		aero_body.sleeping = false
+var last_transform : Transform3D = Transform3D()
+func _physics_process(delta : float) -> void:
+	if Engine.is_editor_hint():
+		return
+	if not transform == last_transform:
+		aero_body.interrupt_sleep()
+	last_transform = transform
 
 func _calculate_forces(substep_delta : float = 0.0) -> PackedVector3Array:
 	linear_velocity = get_linear_velocity()
@@ -142,35 +134,31 @@ func _calculate_forces(substep_delta : float = 0.0) -> PackedVector3Array:
 
 #virtual
 func _update_transform_substep(substep_delta : float) -> void:
-	_update_control_transform(substep_delta)
 	for influencer : AeroInfluencer3D in aero_influencers:
 		influencer._update_transform_substep(substep_delta)
+	
+	_update_control_transform(substep_delta)
 
 func _update_control_transform(substep_delta : float) -> void:
-	if not enable_automatic_control:
-		return
-	
 	control_command = get_parent().control_command
 	throttle_command = get_parent().throttle_command
 	brake_command = get_parent().brake_command
+	collective_command = get_parent().collective_command
 	
-	var pitch_actuation : Vector3 = pitch_contribution * control_command.x
-	var yaw_actuation : Vector3 = yaw_contribution * control_command.y
-	var roll_actuation : Vector3 = roll_contribution * control_command.z
-	var brake_actuation : Vector3 = brake_contribution * brake_command
+	# TODO: Make it easier to manually control AeroInfluencers.
+	var actuation_value := Vector3.ZERO
+	if actuation_config:
+		actuation_value = apply_control_commands_to_config(substep_delta, actuation_config)
 	
-	var total_control_actuation : Vector3 = Vector3(
-		pitch_actuation.x + yaw_actuation.x + roll_actuation.x + brake_actuation.x,
-		pitch_actuation.y + yaw_actuation.y + roll_actuation.y + brake_actuation.y,
-		pitch_actuation.z + yaw_actuation.z + roll_actuation.z + brake_actuation.z
-	)
-	total_control_actuation = total_control_actuation.clamp(-Vector3.ONE, Vector3.ONE)
-	
-	basis = default_transform.basis * Basis().from_euler(total_control_actuation * max_actuation, control_rotation_order)
+	basis = default_transform.basis * Basis().from_euler(actuation_value, control_rotation_order)
 
-#virtual
+#override
 func is_overriding_body_sleep() -> bool:
+	if not can_override_body_sleep:
+		return false
+	
 	var overriding : bool = false
+	
 	for influencer : AeroInfluencer3D in aero_influencers:
 		overriding = overriding or influencer.is_overriding_body_sleep()
 	
@@ -240,6 +228,153 @@ func update_debug_vectors() -> void:
 	
 	#don't update invisible vectors
 	if force_debug_vector.visible:
-		force_debug_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(_current_force, 2.0) * debug_scale
+		force_debug_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(_current_force, 2.0) * debug_scale
 	if torque_debug_vector.visible:
-		torque_debug_vector.value = global_transform.basis.inverse() * AeroBody3D.log_with_base(_current_torque, 2.0) * debug_scale
+		torque_debug_vector.value = global_transform.basis.inverse() * AeroMathUtils.v3log_with_base(_current_torque, 2.0) * debug_scale
+
+func apply_control_commands_to_config(delta : float, control_config : AeroInfluencerControlConfig) -> Vector3:
+	control_config.pitch_command = control_command.x
+	control_config.yaw_command = control_command.y
+	control_config.roll_command = control_command.z
+	control_config.brake_command = brake_command
+	control_config.throttle_command = throttle_command
+	control_config.collective_command = collective_command
+	
+	return control_config.update(delta)
+
+var updated_properties := get_property_conversion_info()
+func get_property_conversion_info() -> Dictionary:
+	#
+	
+	#return super.get_property_conversion_info().merged({
+	return {
+	#input
+	"enable_automatic_control" : [TYPE_BOOL, \
+	func(value) -> void:
+		if value and not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+			actuation_config.enable_control = value
+	],
+	"max_actuation" : [TYPE_VECTOR3, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		actuation_config.max_value = value
+	],
+	"limit_actuation_speed" : [TYPE_BOOL, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		actuation_config.limit_movement_speed = value
+	],
+	"actuation_speed" : [TYPE_FLOAT, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		actuation_config.movement_speed = value
+	],
+	"pitch_contribution" : [TYPE_VECTOR3, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.pitch_config):
+			actuation_config.pitch_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.pitch_config.contribution = value
+	],
+	"pitch_easing" : [TYPE_FLOAT, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.pitch_config):
+			actuation_config.pitch_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.pitch_config.easing = value
+	],
+	"yaw_contribution" : [TYPE_VECTOR3, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.yaw_config):
+			actuation_config.yaw_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.yaw_config.contribution = value
+	],
+	"yaw_easing" : [TYPE_FLOAT, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.yaw_config):
+			actuation_config.yaw_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.yaw_config.easing = value
+	],
+	"roll_contribution" : [TYPE_VECTOR3, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.roll_config):
+			actuation_config.roll_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.roll_config.contribution = value
+	],
+	"roll_easing" : [TYPE_FLOAT, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.roll_config):
+			actuation_config.roll_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.roll_config.easing = value
+	],
+	"brake_contribution" : [TYPE_VECTOR3, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.brake_config):
+			actuation_config.brake_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.brake_config.contribution = value
+	],
+	"brake_easing" : [TYPE_FLOAT, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.brake_config):
+			actuation_config.brake_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.brake_config.easing = value
+	],
+	"throttle_contribution" : [TYPE_VECTOR3, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.throttle_config):
+			actuation_config.throttle_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.throttle_config.contribution = value
+	],
+	"throttle_easing" : [TYPE_FLOAT, \
+	func(value) -> void:
+		if not is_instance_valid(actuation_config):
+			actuation_config = AeroInfluencerControlConfig.new()
+		if not is_instance_valid(actuation_config.throttle_config):
+			actuation_config.throttle_config = AeroInfluencerControlAxisConfig.new()
+		actuation_config.throttle_config.easing = value
+	],
+	
+	}#)
+
+func _get_property_list() -> Array[Dictionary]:
+	var array : Array[Dictionary] = []
+	var updated_properties := get_property_conversion_info()
+	for property in updated_properties.keys():
+		var property_info : Array = updated_properties[property]
+		array.append({
+			"name" : property,
+			"type" : property_info[0],
+			"usage" : 0,
+		})
+	
+	return array
+
+func _set(property: StringName, value: Variant) -> bool:
+	if property in updated_properties.keys():
+		var property_info : Array = updated_properties[property]
+		if property_info.size() >= 2:
+			#print("Calling %s with value %s"  %[property, value])
+			property_info[1].call(value)
+		
+		return true
+	return false
